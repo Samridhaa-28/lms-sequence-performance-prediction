@@ -56,11 +56,9 @@ def build_pattern_table(
         support_low_pct   — relative support in Low group (%)
         difference        — support_high_pct - support_low_pct
     """
-    # Convert to dicts for fast lookup
     high_dict = {tuple(patt): sup for sup, patt in patterns_high}
     low_dict  = {tuple(patt): sup for sup, patt in patterns_low}
 
-    # Union of all patterns found in either group
     all_patterns = set(high_dict.keys()) | set(low_dict.keys())
 
     rows = []
@@ -85,11 +83,52 @@ def build_pattern_table(
     return df
 
 
+# ─── SELECT DISCRIMINATIVE PATTERNS (Day 7) ───────────────────────────────────
+def select_discriminative_patterns(
+    pattern_table: pd.DataFrame,
+    top_n: int = 10,
+    min_diff: float = 5.0,
+) -> pd.DataFrame:
+    """
+    Selects the most discriminative patterns from the full pattern table.
+
+    Args:
+        pattern_table  — output of build_pattern_table()
+        top_n          — how many patterns to pick from each side (default 10)
+        min_diff       — minimum absolute difference threshold (default 5.0%)
+
+    Returns DataFrame with columns:
+        pattern, support_high_pct, support_low_pct, difference, group
+    """
+    filtered = pattern_table[pattern_table["difference"].abs() >= min_diff].copy()
+
+    top_high = (
+        filtered[filtered["difference"] > 0]
+        .nlargest(top_n, "difference")
+        .copy()
+    )
+    top_high["group"] = "High"
+
+    top_low = (
+        filtered[filtered["difference"] < 0]
+        .nsmallest(top_n, "difference")
+        .copy()
+    )
+    top_low["group"] = "Low"
+
+    selected = pd.concat([top_high, top_low], ignore_index=True)
+    selected = selected[[
+        "pattern", "support_high_pct", "support_low_pct", "difference", "group"
+    ]]
+
+    return selected
+
+
 # ─── FULL PIPELINE ────────────────────────────────────────────────────────────
 def run_pattern_mining(
     processed_path: str,
     results_path: str,
-    min_support_pct: float = 0.20,
+    min_support_pct: float = 0.30,
     max_length: int = 4,
 ) -> pd.DataFrame:
     """
@@ -99,12 +138,6 @@ def run_pattern_mining(
         3. Mine patterns with PrefixSpan
         4. Build comparison table
         5. Save to results/patterns.csv
-
-    Args:
-        processed_path   — path to data/processed/
-        results_path     — path to results/
-        min_support_pct  — minimum relative support (default 0.20 = 20%)
-        max_length       — maximum pattern length (default 4)
     """
     student_sequences = load_student_sequences(processed_path)
     high_sequences, low_sequences = split_by_group(student_sequences)
